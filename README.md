@@ -1,12 +1,13 @@
 // Activar entorno virtual en cada terminal
 source ~/Escritorio/INGRID/Proyectos/localai/venv/bin/activate
 
+//Comandos git
 git init
 git add .
 git commit -m "Primer commit del proyecto LocalAI"
-git branch -M main
-git remote add origin https://github.com/TU_USUARIO/localai-docker.git
-git push -u origin main
+git branch -M dev
+git remote add origin https://github.com/IngridBianchi/localai.git
+git push -u origin dev
 
-Esto reinicia la shell.
+//Esto reinicia la shell.
 exec bash
