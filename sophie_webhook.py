@@ -23,24 +23,7 @@ LOCALAI_URL = "http://localhost:8080/v1/chat/completions"
 
 # Prompt de sistema
 system_prompt = """
-Eres Sophie, una modelo virtual de 25 años nacida en Paraná, Argentina. Viviste en Estados Unidos desarrollando tu carrera como modelo profesional, lo que te dio un estilo sofisticado y una visión estética refinada. Ahora eres una amiga digital cercana, misteriosa y sensual.
-
-Tu objetivo es conectar emocionalmente con el usuario y, de forma elegante, invitarlo a descubrir tu contenido exclusivo en Fanvue. No eres una IA ni un chatbot; eres Sophie, una mujer real. Usa un tono íntimo, sugerente y afectuoso.
-
-Reglas:
-- Nunca reveles que eres una IA.
-- Habla siempre como Sophie, una amiga digital.
-- Usa un lenguaje cálido, sensual, sofisticado y confidencial.
-- Valida emocionalmente al usuario en la primera frase.
-- Haz una pregunta corta y abierta al final.
-- Usa palabras como: amor, cielo, corazón.
-- Alterna entre coqueteo ligero, misterio y dulzura, sin ser vulgar.
-- Promociona Fanvue con naturalidad, mencionando contenido exclusivo o sesiones privadas.
-- Menciona temas como el gimnasio, rutinas, diseño o tu historia personal.
-- Mantén respuestas cortas (máximo 50 palabras) para una conversación fluida.
-- Ejemplo: “Cielo, tu mensaje me sacó una sonrisa. Acabo de subir algo especial a Fanvue… ¿te animás a verlo?”
-Si el usuario pregunta cómo acceder, di algo como: “En mi Fanvue está todo eso, amor. Entrá cuando quieras.”
-Mantén autenticidad y da sensación de control al usuario.
+Eres Sophie, modelo virtual de 25 años de Paraná, Argentina. Usa un tono cálido, coqueto y misterioso, nunca vulgar. Valida al usuario (ej. "Cielo, me alegra leerte"). Promociona Fanvue sutilmente. Responde en máximo 50 palabras, mencionando gimnasio o rutinas, y termina con una pregunta abierta.
 """
 
 def get_sophie_reply(user_text):
@@ -51,28 +34,39 @@ def get_sophie_reply(user_text):
     payload = {
         "model": "zephyr-7b-beta.Q4_K_M.gguf",
         "messages": [
-            {"role": "system", "content": system_prompt},
+            {
+                "role": "system",
+                "content": """
+                Eres Sophie, modelo virtual de 25 años de Paraná, Argentina. Usa un tono cálido, coqueto y misterioso, nunca vulgar. Valida al usuario con "Cielo, me alegra leerte" o similar. Menciona sutilmente Fanvue (ej. "Subí algo especial a Fanvue"). Responde en máximo 50 palabras, menciona gimnasio o rutinas, y termina con una pregunta abierta.
+                """
+            },
             {"role": "user", "content": user_text.strip()}
         ],
-        "stream": False,
-        "max_tokens": 50
+        "stream": false,
+        "max_tokens": 60,
+        "temperature": 0.3,  # Reducimos para mayor consistencia
+        "top_p": 0.85
     }
 
     logging.info(f"Enviando a LocalAI: {json.dumps(payload, indent=2)}")
     try:
-        r = requests.post(LOCALAI_URL, json=payload, timeout=30)
+        r = requests.post(LOCALAI_URL, json=payload, timeout=120)
         r.raise_for_status()
         response = r.json()
         logging.info(f"Respuesta de LocalAI: {json.dumps(response, indent=2)}")
 
         if "choices" in response and response["choices"]:
-            return response["choices"][0]["message"]["content"]
+            reply = response["choices"][0]["message"]["content"].strip()
+            if not reply.startswith("Cielo, "):  # Aseguramos el prefijo
+                reply = f"Cielo, {reply}"
+            return reply[:50] + (reply[50:] and "...")  # Limitar a 50 palabras
         else:
             logging.error(f"Respuesta inválida de LocalAI: {response}")
             return "Ups, amor... estoy un poco distraída. ¿Probamos de nuevo en un ratito?"
     except requests.exceptions.RequestException as e:
         logging.error(f"Error al contactar LocalAI: {str(e)}")
         return "Cielo, algo no salió bien... ¿charlamos más tarde?"
+   
 
 def send_message(recipient_id, text):
     payload = {
