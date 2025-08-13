@@ -1,13 +1,26 @@
-version: '3.8'
-
+version: '3'
 services:
   localai:
-    image: quay.io/go-skynet/local-ai:latest
-    container_name: localai
+    image: quay.io/go-skynet/local-ai:master-aio-cpu
     ports:
       - "8080:8080"
     volumes:
-      - ./models:/models
+      - /home/alejandro/Escritorio/INGRID/Proyectos/localai/models:/models
     environment:
-      - DEBUG=true
       - MODELS_PATH=/models
+      - GALLERIES=[{"name":"model-gallery","url":"github://local-ai/model-gallery"}]
+    deploy:  
+      resources:
+        limits:
+          cpus: '2.0' 
+          memory: 8GB
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - /home/alejandro/Escritorio/INGRID/Proyectos/localai:/app
+    depends_on:
+      - localai

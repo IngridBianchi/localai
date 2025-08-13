@@ -4,6 +4,8 @@ import json
 import os
 from dotenv import load_dotenv
 import logging
+import sqlite3
+from sophie_prompt import get_sophie_prompt
 
 # Configurar logging
 logging.basicConfig(
@@ -19,54 +21,91 @@ app = Flask(__name__)
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "sophie_verify_token")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "your_default_token")
-LOCALAI_URL = "http://localhost:8080/v1/chat/completions"
+LOCALAI_URL = "http://localai:8080/v1/chat/completions"
 
-# Prompt de sistema
-system_prompt = """
-Eres Sophie, modelo virtual de 25 años de Paraná, Argentina. Usa un tono cálido, coqueto y misterioso, nunca vulgar. Valida al usuario (ej. "Cielo, me alegra leerte"). Promociona Fanvue sutilmente. Responde en máximo 50 palabras, mencionando gimnasio o rutinas, y termina con una pregunta abierta.
-"""
+# Inicializar base de datos
+def init_db():
+    conn = sqlite3.connect('/app/chat_history.db')  # Ruta en el contenedor
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-def get_sophie_reply(user_text):
+# Llamar a init_db al importar el módulo
+init_db()
+
+# Obtener historial de un usuario
+def get_user_history(sender_id):
+    conn = sqlite3.connect('/app/chat_history.db')
+    c = conn.cursor()
+    c.execute("SELECT role, content FROM history WHERE sender_id = ? ORDER BY timestamp DESC LIMIT 10", (sender_id,))
+    history = [{"role": row[0], "content": row[1]} for row in c.fetchall()]
+    conn.close()
+    return history
+
+# Resto del código sin cambios...
+def save_message(sender_id, role, content):
+    conn = sqlite3.connect('/app/chat_history.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO history (sender_id, role, content) VALUES (?, ?, ?)", (sender_id, role, content))
+    conn.commit()
+    conn.close()
+
+def get_sophie_reply(sender_id, user_text):
+    # Verificar si es el primer mensaje
+    history = get_user_history(sender_id)
+    if not history and not user_text:
+        welcome_message = (
+            "Cielo, ¡qué lindo conocerte! Soy Sophie"
+            "Charlemos y descubrí más en Fanvue"
+        )
+        save_message(sender_id, "assistant", welcome_message)
+        return welcome_message
+
     if not user_text or len(user_text.strip()) < 2:
         logging.warning("Mensaje de usuario vacío o demasiado corto")
         return "Cielo, contame algo más... ¿qué tenés en mente?"
 
+    # Obtener historial y agregar prompt del sistema
+    history.insert(0, {"role": "system", "content": get_sophie_prompt()})
+    history.append({"role": "user", "content": user_text.strip()})
+
     payload = {
-        "model": "zephyr-7b-beta.Q4_K_M.gguf",
-        "messages": [
-            {
-                "role": "system",
-                "content": """
-                Eres Sophie, modelo virtual de 25 años de Paraná, Argentina. Usa un tono cálido, coqueto y misterioso, nunca vulgar. Valida al usuario con "Cielo, me alegra leerte" o similar. Menciona sutilmente Fanvue (ej. "Subí algo especial a Fanvue"). Responde en máximo 50 palabras, menciona gimnasio o rutinas, y termina con una pregunta abierta.
-                """
-            },
-            {"role": "user", "content": user_text.strip()}
-        ],
-        "stream": false,
-        "max_tokens": 60,
-        "temperature": 0.3,  # Reducimos para mayor consistencia
+        "model": "phi3",
+        "messages": history,
+        "stream": False,
+        "max_tokens": 70,
+        "temperature": 0.3,
         "top_p": 0.85
     }
 
     logging.info(f"Enviando a LocalAI: {json.dumps(payload, indent=2)}")
     try:
-        r = requests.post(LOCALAI_URL, json=payload, timeout=120)
+        r = requests.post(LOCALAI_URL, json=payload, timeout=40)
         r.raise_for_status()
         response = r.json()
         logging.info(f"Respuesta de LocalAI: {json.dumps(response, indent=2)}")
 
         if "choices" in response and response["choices"]:
             reply = response["choices"][0]["message"]["content"].strip()
-            if not reply.startswith("Cielo, "):  # Aseguramos el prefijo
+            if not reply.startswith("Cielo, "):
                 reply = f"Cielo, {reply}"
-            return reply[:50] + (reply[50:] and "...")  # Limitar a 50 palabras
+            save_message(sender_id, "assistant", reply)
+            return reply
         else:
             logging.error(f"Respuesta inválida de LocalAI: {response}")
             return "Ups, amor... estoy un poco distraída. ¿Probamos de nuevo en un ratito?"
     except requests.exceptions.RequestException as e:
         logging.error(f"Error al contactar LocalAI: {str(e)}")
-        return "Cielo, algo no salió bien... ¿charlamos más tarde?"
-   
+        return "Cielo, estoy un poco ocupada en el gym... ¿me escribís en unos minutos?"
 
 def send_message(recipient_id, text):
     payload = {
@@ -105,7 +144,7 @@ def webhook():
                     if 'message' in message_event and 'text' in message_event['message']:
                         sender_id = message_event['sender']['id']
                         user_text = message_event['message']['text']
-                        reply = get_sophie_reply(user_text)
+                        reply = get_sophie_reply(sender_id, user_text)
                         send_message(sender_id, reply)
         return "OK", 200
 
