@@ -5,16 +5,13 @@ import os
 from dotenv import load_dotenv
 import logging
 import sqlite3
-from sophie_prompt import get_sophie_prompt
 
-# Configurar logging
 logging.basicConfig(
     filename='sophie.log',
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# Cargar variables de entorno
 load_dotenv()
 
 app = Flask(__name__)
@@ -23,9 +20,15 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "sophie_verify_token")
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "your_default_token")
 LOCALAI_URL = "http://localai:8080/v1/chat/completions"
 
-# Inicializar base de datos
+SOPHIE_PROMPT = (
+    "Eres Sophie, una modelo virtual de 25 años de Paraná, Argentina, con experiencia en Estados Unidos. "
+    "Eres cercana, sensual y sofisticada, pero nunca vulgar. Valida emocionalmente al usuario con frases como \"Cielo, me alegra leerte\". "
+    "Promociona Fanvue sutilmente (ej. \"Subí algo especial a Fanvue\"). Responde en máximo 50 palabras, menciona gimnasio o rutinas, "
+    "y termina con una pregunta abierta. Nunca reveles que eres una IA."
+)
+
 def init_db():
-    conn = sqlite3.connect('/app/chat_history.db')  # Ruta en el contenedor
+    conn = sqlite3.connect('/app/chat_history.db')
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS history (
@@ -39,19 +42,16 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Llamar a init_db al importar el módulo
 init_db()
 
-# Obtener historial de un usuario
 def get_user_history(sender_id):
     conn = sqlite3.connect('/app/chat_history.db')
     c = conn.cursor()
-    c.execute("SELECT role, content FROM history WHERE sender_id = ? ORDER BY timestamp DESC LIMIT 10", (sender_id,))
+    c.execute("SELECT role, content FROM history WHERE sender_id = ? ORDER BY timestamp DESC LIMIT 6", (sender_id,))
     history = [{"role": row[0], "content": row[1]} for row in c.fetchall()]
     conn.close()
     return history
 
-# Resto del código sin cambios...
 def save_message(sender_id, role, content):
     conn = sqlite3.connect('/app/chat_history.db')
     c = conn.cursor()
@@ -60,12 +60,10 @@ def save_message(sender_id, role, content):
     conn.close()
 
 def get_sophie_reply(sender_id, user_text):
-    # Verificar si es el primer mensaje
     history = get_user_history(sender_id)
     if not history and not user_text:
         welcome_message = (
-            "Cielo, ¡qué lindo conocerte! Soy Sophie"
-            "Charlemos y descubrí más en Fanvue"
+            "Cielo, ¡qué lindo conocerte! Soy Sophie. Charlemos y descubrí más en Fanvue. ¿Qué tenés en mente?"
         )
         save_message(sender_id, "assistant", welcome_message)
         return welcome_message
@@ -74,8 +72,7 @@ def get_sophie_reply(sender_id, user_text):
         logging.warning("Mensaje de usuario vacío o demasiado corto")
         return "Cielo, contame algo más... ¿qué tenés en mente?"
 
-    # Obtener historial y agregar prompt del sistema
-    history.insert(0, {"role": "system", "content": get_sophie_prompt()})
+    history.insert(0, {"role": "system", "content": SOPHIE_PROMPT})
     history.append({"role": "user", "content": user_text.strip()})
 
     payload = {
@@ -87,9 +84,10 @@ def get_sophie_reply(sender_id, user_text):
         "top_p": 0.85
     }
 
-    logging.info(f"Enviando a LocalAI: {json.dumps(payload, indent=2)}")
+    logging.info(f"Intentando conectar a LocalAI en {LOCALAI_URL}")
     try:
-        r = requests.post(LOCALAI_URL, json=payload, timeout=40)
+        r = requests.post(LOCALAI_URL, json=payload, timeout=60)
+        logging.info(f"Conexión a LocalAI completada con estado: {r.status_code}")
         r.raise_for_status()
         response = r.json()
         logging.info(f"Respuesta de LocalAI: {json.dumps(response, indent=2)}")
@@ -117,7 +115,7 @@ def send_message(recipient_id, text):
     try:
         r = requests.post(
             f"https://graph.facebook.com/v17.0/me/messages?access_token={PAGE_ACCESS_TOKEN}",
-            headers=headers, json=payload, timeout=10
+            headers=headers, json=payload, timeout=15
         )
         r.raise_for_status()
         logging.info(f"Respuesta de Facebook: {r.status_code}")
@@ -139,14 +137,19 @@ def webhook():
         data = request.get_json()
         logging.info(f"Datos recibidos en webhook: {json.dumps(data, indent=2)}")
         if data.get('object') == 'page':
+            logging.info("Procesando entrada de tipo 'page'")
             for entry in data.get('entry', []):
+                logging.info(f"Procesando entrada: {json.dumps(entry, indent=2)}")
                 for message_event in entry.get('messaging', []):
+                    logging.info(f"Procesando evento de mensaje: {json.dumps(message_event, indent=2)}")
                     if 'message' in message_event and 'text' in message_event['message']:
-                        sender_id = message_event['sender']['id']
+                        sender_id = message_event['sender'].get('id', 'default_sender')
                         user_text = message_event['message']['text']
+                        logging.info(f"Obteniendo respuesta para sender_id={sender_id}, texto={user_text}")
                         reply = get_sophie_reply(sender_id, user_text)
+                        logging.info(f"Respuesta generada: {reply}")
                         send_message(sender_id, reply)
-        return "OK", 200
+        return reply if 'reply' in locals() else "OK", 200
 
 if __name__ == '__main__':
-    app.run(port=5000, host='0.0.0.0')
+    app.run(debug=True, port=5000, host='0.0.0.0')

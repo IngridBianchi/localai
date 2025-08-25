@@ -1,26 +1,32 @@
-version: '3'
+version: "3.9"
+
 services:
   localai:
-    image: quay.io/go-skynet/local-ai:master-aio-cpu
+    image: quay.io/go-skynet/local-ai:latest
+    container_name: localai
     ports:
       - "8080:8080"
     volumes:
-      - /home/alejandro/Escritorio/INGRID/Proyectos/localai/models:/models
+      - ./models:/models
     environment:
-      - MODELS_PATH=/models
-      - GALLERIES=[{"name":"model-gallery","url":"github://local-ai/model-gallery"}]
-    deploy:  
-      resources:
-        limits:
-          cpus: '2.0' 
-          memory: 8GB
+      THREADS: "2"
+      CONTEXT_SIZE: "4096"
+      TIMEOUT: "600"
+      NO_GALLERY: "true"
+      PRELOAD_MODELS: '[{"url":"file:///models/phi3.yaml"}]'
+    # Si querés limitar recursos en tu PC, usá esto en lugar de deploy:
+    # mem_limit: 6g
+    # cpus: 2
+
   webhook:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
+    container_name: sophie_webhook
     ports:
       - "5000:5000"
     volumes:
-      - /home/alejandro/Escritorio/INGRID/Proyectos/localai:/app
+      - .:/app
+    environment:
+      VERIFY_TOKEN: "sophie_verify_token"
+      PAGE_ACCESS_TOKEN: "your_page_access_token"
     depends_on:
       - localai
