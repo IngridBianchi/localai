@@ -48,3 +48,6 @@ models/*
 tmp/
 
 .env sophie.log chat_history.db pycache/ *.pyc
+
+llama.cpp/
+

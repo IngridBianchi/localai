@@ -1,21 +1,20 @@
+# Base Python para tu webhook
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1
-
 WORKDIR /app
 
-# Copiar requirements primero
+# Instalar dependencias para Python
 COPY requirements.txt .
-
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar todo el proyecto (incluido sophie_webhook.py)
+# Copiar todo el proyecto
 COPY . .
 
-# Producción con Gunicorn
-# CMD ["gunicorn", "--bind", "0.0.0.0:5000", "sophie_webhook:app"]
+# Puerto Flask
+EXPOSE 5000
 
-# Para debug con Flask, cambiar la línea de arriba por:
+# Ejecutar Flask para debug
 CMD ["python", "sophie_webhook.py"]
 
 ENV PYTHONPATH=/app

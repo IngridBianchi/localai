@@ -1,24 +1,24 @@
-version: "3.9"
+version: '3.8'
 
 services:
   localai:
-    image: quay.io/go-skynet/local-ai:latest
+    image: localai-custom
     container_name: localai
-    ports:
-      - "8080:8080"
+    environment:
+      PRELOAD_MODELS: '[{"url":"file:///models/phi3-light.yaml"}]'
+      THREADS: '4'
+      NO_GALLERY: 'true'
+      REBUILD: 'true'
+      LLAMA_CPP_PATH: '/llama.cpp/build/bin/llama-server'  # Ruta al binario compilado
+      LOG_LEVEL: 'debug'
+      LOCALAI_EXTERNAL_BACKENDS: "llama-cpp"
     volumes:
       - ./models:/models
-    environment:
-      THREADS: "2"
-      CONTEXT_SIZE: "4096"
-      TIMEOUT: "600"
-      NO_GALLERY: "true"
-      PRELOAD_MODELS: '[{"url":"file:///models/phi3.yaml"}]'
-    # Si querés limitar recursos en tu PC, usá esto en lugar de deploy:
-    # mem_limit: 6g
-    # cpus: 2
+      - ./llama.cpp:/llama.cpp
+    ports:
+      - "8080:8080"
 
-  webhook:
+  sophie_webhook:
     build: .
     container_name: sophie_webhook
     ports:
@@ -26,7 +26,7 @@ services:
     volumes:
       - .:/app
     environment:
-      VERIFY_TOKEN: "sophie_verify_token"
-      PAGE_ACCESS_TOKEN: "your_page_access_token"
+      FLASK_ENV: development
+      LOCALAI_API: http://localai:8080/v1/chat/completions
     depends_on:
       - localai
